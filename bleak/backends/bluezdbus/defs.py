@@ -1,12 +1,8 @@
 # -*- coding: utf-8 -*-
 
-import sys
-from typing import Dict, List, Tuple
+from typing import Literal, TypedDict
 
-if sys.version_info[:2] < (3, 8):
-    from typing_extensions import Literal, TypedDict
-else:
-    from typing import Literal, TypedDict
+from bleak.assigned_numbers import CharacteristicPropertyName
 
 # DBus Interfaces
 OBJECT_MANAGER_INTERFACE = "org.freedesktop.DBus.ObjectManager"
@@ -31,7 +27,7 @@ GATT_DESCRIPTOR_INTERFACE = "org.bluez.GattDescriptor1"
 
 
 # D-Bus properties for interfaces
-# https://github.com/bluez/bluez/blob/master/doc/adapter-api.txt
+# https://github.com/bluez/bluez/blob/master/doc/org.bluez.Adapter.rst
 
 
 class Adapter1(TypedDict):
@@ -45,13 +41,13 @@ class Adapter1(TypedDict):
     PairableTimeout: int
     DiscoverableTimeout: int
     Discovering: int
-    UUIDs: List[str]
+    UUIDs: list[str]
     Modalias: str
-    Roles: List[str]
-    ExperimentalFeatures: List[str]
+    Roles: list[str]
+    ExperimentalFeatures: list[str]
 
 
-# https://github.com/bluez/bluez/blob/master/doc/advertisement-monitor-api.txt
+# https://github.com/bluez/bluez/blob/master/doc/org.bluez.AdvertisementMonitor.rst
 
 
 class AdvertisementMonitor1(TypedDict):
@@ -61,23 +57,26 @@ class AdvertisementMonitor1(TypedDict):
     RSSILowTimeout: int
     RSSIHighTimeout: int
     RSSISamplingPeriod: int
-    Patterns: List[Tuple[int, int, bytes]]
+    Patterns: list[tuple[int, int, bytes]]
+
+
+# https://github.com/bluez/bluez/blob/master/doc/org.bluez.AdvertisementMonitorManager.rst
 
 
 class AdvertisementMonitorManager1(TypedDict):
-    SupportedMonitorTypes: List[str]
-    SupportedFeatures: List[str]
+    SupportedMonitorTypes: list[str]
+    SupportedFeatures: list[str]
 
 
-# https://github.com/bluez/bluez/blob/master/doc/battery-api.txt
+# https://github.com/bluez/bluez/blob/master/doc/org.bluez.Battery.rst
 
 
 class Battery1(TypedDict):
-    SupportedMonitorTypes: List[str]
-    SupportedFeatures: List[str]
+    SupportedMonitorTypes: list[str]
+    SupportedFeatures: list[str]
 
 
-# https://github.com/bluez/bluez/blob/master/doc/device-api.txt
+# https://github.com/bluez/bluez/blob/master/doc/org.bluez.Device.rst
 
 
 class Device1(TypedDict):
@@ -87,7 +86,7 @@ class Device1(TypedDict):
     Icon: str
     Class: int
     Appearance: int
-    UUIDs: List[str]
+    UUIDs: list[str]
     Paired: bool
     Bonded: bool
     Connected: bool
@@ -100,21 +99,21 @@ class Device1(TypedDict):
     Modalias: str
     RSSI: int
     TxPower: int
-    ManufacturerData: Dict[int, bytes]
-    ServiceData: Dict[str, bytes]
+    ManufacturerData: dict[int, bytes]
+    ServiceData: dict[str, bytes]
     ServicesResolved: bool
     AdvertisingFlags: bytes
-    AdvertisingData: Dict[int, bytes]
+    AdvertisingData: dict[int, bytes]
 
 
-# https://github.com/bluez/bluez/blob/master/doc/gatt-api.txt
+# https://github.com/bluez/bluez/blob/master/doc/org.bluez.GattService.rst
 
 
 class GattService1(TypedDict):
     UUID: str
     Primary: bool
     Device: str
-    Includes: List[str]
+    Includes: list[str]
     # Handle is server-only and not available in Bleak
 
 
@@ -125,29 +124,9 @@ class GattCharacteristic1(TypedDict):
     WriteAcquired: bool
     NotifyAcquired: bool
     Notifying: bool
-    Flags: List[
-        Literal[
-            "broadcast",
-            "read",
-            "write-without-response",
-            "write",
-            "notify",
-            "indicate",
-            "authenticated-signed-writes",
-            "extended-properties",
-            "reliable-write",
-            "writable-auxiliaries",
-            "encrypt-read",
-            "encrypt-write",
-            # "encrypt-notify" and "encrypt-indicate" are server-only
-            "encrypt-authenticated-read",
-            "encrypt-authenticated-write",
-            # "encrypt-authenticated-notify", "encrypt-authenticated-indicate",
-            # "secure-read", "secure-write", "secure-notify", "secure-indicate"
-            # are server-only
-            "authorize",
-        ]
-    ]
+    Flags: list[CharacteristicPropertyName]
+    # "MTU" property was added in BlueZ 5.62.
+    # It may missing when operating with an older stack.
     MTU: int
     # Handle is server-only and not available in Bleak
 
@@ -156,7 +135,7 @@ class GattDescriptor1(TypedDict):
     UUID: str
     Characteristic: str
     Value: bytes
-    Flags: List[
+    Flags: list[
         Literal[
             "read",
             "write",

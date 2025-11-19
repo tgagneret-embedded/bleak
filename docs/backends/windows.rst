@@ -1,8 +1,8 @@
 Windows backend
 ===============
 
-The Windows backend of bleak is written using the `Bleak WinRT <https://github.com/dlech/bleak-winrt>`_
-package to provide bindings for the Windows Runtime (WinRT).
+The Windows backend of bleak is written using `PyWinRT <https://github.com/pywinrt/pywinrt>`_
+to provide bindings for the Windows Runtime (WinRT).
 
 The Windows backend implements a ``BleakClient`` in the module ``bleak.backends.winrt.client``, a ``BleakScanner``
 method in the ``bleak.backends.winrt.scanner`` module. There are also backend-specific implementations of the
@@ -18,6 +18,12 @@ Client
 
 API
 ---
+
+Utilities
+~~~~~~~~~
+
+.. automodule:: bleak.backends.winrt.util
+    :members:
 
 Scanner
 ~~~~~~~

@@ -19,6 +19,14 @@ Contributors
 * Bernie Conrad <bernie@allthenticate.net>
 * Jonathan Soto <jsotogaviard@alum.mit.edu>
 * Kyle J. Williams <kyle@kjwill.tech>
+* Edward Betts <edward@4angle.com>
+* Robbe Gaeremynck <robbe.gaeremynck@outlook.com>
+* David Johansen <davejohansen@gmail.com>
+* JP Hutchins <jphutchins@gmail.com>
+* Bram Duvigneau <bram@bramd.nl>
+* Dmytro Yaroshenko <thehelixpg@gmail.com>
+
+And many others who did not wish to be named here.
 
 Sponsors
 --------

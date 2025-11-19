@@ -68,7 +68,9 @@ async def uart_terminal():
 
         loop = asyncio.get_running_loop()
         nus = client.services.get_service(UART_SERVICE_UUID)
+        assert nus is not None, "UART service not found"
         rx_char = nus.get_characteristic(UART_RX_CHAR_UUID)
+        assert rx_char is not None, "UART RX characteristic not found"
 
         while True:
             # This waits until you type a line and press ENTER.
@@ -89,7 +91,7 @@ async def uart_terminal():
             # property to split the data into chunks that will fit.
 
             for s in sliced(data, rx_char.max_write_without_response_size):
-                await client.write_gatt_char(rx_char, s)
+                await client.write_gatt_char(rx_char, s, response=False)
 
             print("sent:", data)
 

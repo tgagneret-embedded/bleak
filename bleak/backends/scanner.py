@@ -3,20 +3,15 @@ import asyncio
 import inspect
 import os
 import platform
-from typing import (
-    Any,
-    Awaitable,
-    Callable,
-    Dict,
-    List,
-    NamedTuple,
-    Optional,
-    Tuple,
-    Type,
-)
+import sys
+from collections.abc import Callable, Coroutine, Hashable
+from typing import Any, NamedTuple, Optional
 
-from ..exc import BleakError
-from .device import BLEDevice
+from bleak.backends.device import BLEDevice
+from bleak.exc import BleakError
+
+# prevent tasks from being garbage collected
+_background_tasks: set[asyncio.Task[None]] = set()
 
 
 class AdvertisementData(NamedTuple):
@@ -29,7 +24,7 @@ class AdvertisementData(NamedTuple):
     The local name of the device or ``None`` if not included in advertising data.
     """
 
-    manufacturer_data: Dict[int, bytes]
+    manufacturer_data: dict[int, bytes]
     """
     Dictionary of manufacturer data in bytes from the received advertisement data or empty dict if not present.
 
@@ -38,31 +33,31 @@ class AdvertisementData(NamedTuple):
     https://www.bluetooth.com/specifications/assigned-numbers/company-identifiers/
     """
 
-    service_data: Dict[str, bytes]
+    service_data: dict[str, bytes]
     """
     Dictionary of service data from the received advertisement data or empty dict if not present.
     """
 
-    service_uuids: List[str]
+    service_uuids: list[str]
     """
     List of service UUIDs from the received advertisement data or empty list if not present.
     """
 
     tx_power: Optional[int]
     """
-    Tx Power data from the received advertising data or ``None`` if not present.
+    TX Power Level of the remote device from the received advertising data or ``None`` if not present.
 
-    .. versionadded:: 0.17.0
+    .. versionadded:: 0.17
     """
 
     rssi: int
     """
     The Radio Receive Signal Strength (RSSI) in dBm.
 
-    .. versionadded:: 0.19.0
+    .. versionadded:: 0.19
     """
 
-    platform_data: Tuple
+    platform_data: tuple[Any, ...]
     """
     Tuple of platform specific data.
 
@@ -70,7 +65,7 @@ class AdvertisementData(NamedTuple):
     """
 
     def __repr__(self) -> str:
-        kwargs = []
+        kwargs: list[str] = []
         if self.local_name:
             kwargs.append(f"local_name={repr(self.local_name)}")
         if self.manufacturer_data:
@@ -87,7 +82,7 @@ class AdvertisementData(NamedTuple):
 
 AdvertisementDataCallback = Callable[
     [BLEDevice, AdvertisementData],
-    Optional[Awaitable[None]],
+    Optional[Coroutine[Any, Any, None]],
 ]
 """
 Type alias for callback called when advertisement data is received.
@@ -117,9 +112,11 @@ class BaseBleakScanner(abc.ABC):
             containing this advertising data will be received.
     """
 
-    seen_devices: Dict[str, Tuple[BLEDevice, AdvertisementData]]
+    seen_devices: dict[str, tuple[BLEDevice, AdvertisementData]]
     """
     Map of device identifier to BLEDevice and most recent advertisement data.
+
+    The key is a backend-specific identifier for the device.
 
     This map must be cleared when scanning starts.
     """
@@ -127,12 +124,21 @@ class BaseBleakScanner(abc.ABC):
     def __init__(
         self,
         detection_callback: Optional[AdvertisementDataCallback],
-        service_uuids: Optional[List[str]],
+        service_uuids: Optional[list[str]],
     ):
         super(BaseBleakScanner, self).__init__()
-        self._callback: Optional[AdvertisementDataCallback] = None
-        self.register_detection_callback(detection_callback)
-        self._service_uuids: Optional[List[str]] = (
+
+        self._ad_callbacks: dict[
+            Hashable, Callable[[BLEDevice, AdvertisementData], None]
+        ] = {}
+        """
+        List of callbacks to call when an advertisement is received.
+        """
+
+        if detection_callback is not None:
+            self.register_detection_callback(detection_callback)
+
+        self._service_uuids: Optional[list[str]] = (
             [u.lower() for u in service_uuids] if service_uuids is not None else None
         )
 
@@ -140,11 +146,10 @@ class BaseBleakScanner(abc.ABC):
 
     def register_detection_callback(
         self, callback: Optional[AdvertisementDataCallback]
-    ) -> None:
-        """Register a callback that is called when a device is discovered or has a property changed.
-
-        If another callback has already been registered, it will be replaced with ``callback``.
-        ``None`` can be used to remove the current callback.
+    ) -> Callable[[], None]:
+        """
+        Register a callback that is called when an advertisement event from the
+        OS is received.
 
         The ``callback`` is a function or coroutine that takes two arguments: :class:`BLEDevice`
         and :class:`AdvertisementData`.
@@ -152,33 +157,100 @@ class BaseBleakScanner(abc.ABC):
         Args:
             callback: A function, coroutine or ``None``.
 
+        Returns:
+            A method that can be called to unregister the callback.
         """
-        if callback is not None:
-            error_text = "callback must be callable with 2 parameters"
-            if not callable(callback):
-                raise TypeError(error_text)
+        error_text = "callback must be callable with 2 parameters"
 
-            handler_signature = inspect.signature(callback)
-            if len(handler_signature.parameters) != 2:
-                raise TypeError(error_text)
+        if not callable(callback):
+            raise TypeError(error_text)
+
+        handler_signature = inspect.signature(callback)
+
+        if len(handler_signature.parameters) != 2:
+            raise TypeError(error_text)
 
         if inspect.iscoroutinefunction(callback):
 
-            def detection_callback(s, d):
-                asyncio.ensure_future(callback(s, d))
+            def detection_callback(s: BLEDevice, d: AdvertisementData) -> None:
+                task = asyncio.create_task(callback(s, d))
+                _background_tasks.add(task)
+                task.add_done_callback(_background_tasks.discard)
 
         else:
             detection_callback = callback
 
-        self._callback = detection_callback
+        token = object()
+
+        self._ad_callbacks[token] = detection_callback
+
+        def remove() -> None:
+            self._ad_callbacks.pop(token, None)
+
+        return remove
+
+    def is_allowed_uuid(self, service_uuids: Optional[list[str]]) -> bool:
+        """
+        Check if the advertisement data contains any of the service UUIDs
+        matching the filter. If no filter is set, this will always return
+        ``True``.
+
+        Args:
+            service_uuids: The service UUIDs from the advertisement data.
+
+        Returns:
+            ``True`` if the advertisement data should be allowed or ``False``
+             if the advertisement data should be filtered out.
+        """
+        # Backends will make best effort to filter out advertisements that
+        # don't match the service UUIDs, but if other apps are scanning at the
+        # same time or something like that, we may still receive advertisements
+        # that don't match. So we need to do more filtering here to get the
+        # expected behavior.
+
+        if not self._service_uuids:
+            # if there is no filter, everything is allowed
+            return True
+
+        if not service_uuids:
+            # if there is a filter the advertisement data doesn't contain any
+            # service UUIDs, filter it out
+            return False
+
+        for uuid in service_uuids:
+            if uuid in self._service_uuids:
+                # match was found, keep this advertisement
+                return True
+
+        # there were no matching service uuids, filter this one out
+        return False
+
+    def call_detection_callbacks(
+        self, device: BLEDevice, advertisement_data: AdvertisementData
+    ) -> None:
+        """
+        Calls all registered detection callbacks.
+
+        Backend implementations should call this method when an advertisement
+        event is received from the OS.
+        """
+
+        for callback in self._ad_callbacks.values():
+            callback(device, advertisement_data)
 
     def create_or_update_device(
-        self, address: str, name: str, details: Any, adv: AdvertisementData
+        self,
+        key: str,
+        address: str,
+        name: Optional[str],
+        details: Any,
+        adv: AdvertisementData,
     ) -> BLEDevice:
         """
         Creates or updates a device in :attr:`seen_devices`.
 
         Args:
+            key: A backend-specific identifier for the device.
             address: The Bluetooth address of the device (UUID on macOS).
             name: The OS display name for the device.
             details: The platform-specific handle for the device.
@@ -188,52 +260,29 @@ class BaseBleakScanner(abc.ABC):
             The updated device.
         """
 
-        # for backwards compatibility, see https://github.com/hbldh/bleak/issues/1025
-        metadata = dict(
-            uuids=adv.service_uuids,
-            manufacturer_data=adv.manufacturer_data,
-        )
-
         try:
-            device, _ = self.seen_devices[address]
+            device, _ = self.seen_devices[key]
 
-            device._rssi = adv.rssi
-            device._metadata = metadata
+            device.name = name
         except KeyError:
-            device = BLEDevice(
-                address,
-                name,
-                details,
-                adv.rssi,
-                **metadata,
-            )
+            device = BLEDevice(address, name, details)
 
-        self.seen_devices[address] = (device, adv)
+        self.seen_devices[key] = (device, adv)
 
         return device
 
     @abc.abstractmethod
-    async def start(self):
+    async def start(self) -> None:
         """Start scanning for devices"""
         raise NotImplementedError()
 
     @abc.abstractmethod
-    async def stop(self):
+    async def stop(self) -> None:
         """Stop scanning for devices"""
         raise NotImplementedError()
 
-    @abc.abstractmethod
-    def set_scanning_filter(self, **kwargs):
-        """Set scanning filter for the BleakScanner.
 
-        Args:
-            **kwargs: The filter details. This will differ a lot between backend implementations.
-
-        """
-        raise NotImplementedError()
-
-
-def get_platform_scanner_backend_type() -> Type[BaseBleakScanner]:
+def get_platform_scanner_backend_type() -> type[BaseBleakScanner]:
     """
     Gets the platform-specific :class:`BaseBleakScanner` type.
     """
@@ -246,6 +295,19 @@ def get_platform_scanner_backend_type() -> Type[BaseBleakScanner]:
         from bleak.backends.bluezdbus.scanner import BleakScannerBlueZDBus
 
         return BleakScannerBlueZDBus
+
+    if sys.platform == "ios" and "Pythonista3.app" in sys.executable:
+        # Must be resolved before checking for "Darwin" (macOS),
+        # as both the Pythonista app for iOS and macOS
+        # return "Darwin" from platform.system()
+        try:
+            from bleak_pythonista import BleakScannerPythonistaCB
+
+            return BleakScannerPythonistaCB
+        except ImportError as e:
+            raise ImportError(
+                "Ensure you have `bleak-pythonista` package installed."
+            ) from e
 
     if platform.system() == "Darwin":
         from bleak.backends.corebluetooth.scanner import BleakScannerCoreBluetooth

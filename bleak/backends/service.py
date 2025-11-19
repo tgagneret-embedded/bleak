@@ -1,43 +1,42 @@
 # -*- coding: utf-8 -*-
+# Created on 2019-03-19 by hbldh <henrik.blidh@nedomkull.com>
 """
 Gatt Service Collection class and interface class for the Bleak representation of a GATT Service.
-
-Created on 2019-03-19 by hbldh <henrik.blidh@nedomkull.com>
-
 """
-import abc
 import logging
-from typing import Dict, Iterator, List, Optional, Union
+from collections.abc import Iterator
+from typing import Any, Optional, Union, cast
 from uuid import UUID
 
-from ..exc import BleakError
-from ..uuids import uuidstr_to_str
-from .characteristic import BleakGATTCharacteristic
-from .descriptor import BleakGATTDescriptor
+from bleak.backends.characteristic import BleakGATTCharacteristic
+from bleak.backends.descriptor import BleakGATTDescriptor
+from bleak.exc import BleakError
+from bleak.uuids import normalize_uuid_str, uuidstr_to_str
 
 logger = logging.getLogger(__name__)
 
 
-class BleakGATTService(abc.ABC):
-    """Interface for the Bleak representation of a GATT Service."""
+class BleakGATTService:
+    """The Bleak representation of a GATT Service."""
 
-    def __init__(self, obj):
+    def __init__(self, obj: Any, handle: int, uuid: str) -> None:
         self.obj = obj
+        self._handle = handle
+        self._uuid = uuid
+        self._characteristics: dict[int, BleakGATTCharacteristic] = {}
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"{self.uuid} (Handle: {self.handle}): {self.description}"
 
     @property
-    @abc.abstractmethod
     def handle(self) -> int:
         """The handle of this service"""
-        raise NotImplementedError()
+        return self._handle
 
     @property
-    @abc.abstractmethod
     def uuid(self) -> str:
         """The UUID to this service"""
-        raise NotImplementedError()
+        return self._uuid
 
     @property
     def description(self) -> str:
@@ -45,18 +44,22 @@ class BleakGATTService(abc.ABC):
         return uuidstr_to_str(self.uuid)
 
     @property
-    @abc.abstractmethod
-    def characteristics(self) -> List[BleakGATTCharacteristic]:
+    def characteristics(self) -> list[BleakGATTCharacteristic]:
         """List of characteristics for this service"""
-        raise NotImplementedError()
+        return list(self._characteristics.values())
 
-    @abc.abstractmethod
-    def add_characteristic(self, characteristic: BleakGATTCharacteristic):
+    def add_characteristic(self, characteristic: BleakGATTCharacteristic) -> None:
         """Add a :py:class:`~BleakGATTCharacteristic` to the service.
 
         Should not be used by end user, but rather by `bleak` itself.
         """
-        raise NotImplementedError()
+        if characteristic.handle in self._characteristics:
+            raise BleakError(
+                "The characteristic '%s' is already present in this BleakGATTService!",
+                characteristic.handle,
+            )
+
+        self._characteristics[characteristic.handle] = characteristic
 
     def get_characteristic(
         self, uuid: Union[str, UUID]
@@ -70,12 +73,11 @@ class BleakGATTService(abc.ABC):
             The first characteristic matching ``uuid`` or ``None`` if no
             matching characteristic was found.
         """
-        if type(uuid) == str and len(uuid) == 4:
-            # Convert 16-bit uuid to 128-bit uuid
-            uuid = f"0000{uuid}-0000-1000-8000-00805f9b34fb"
+        uuid = normalize_uuid_str(str(uuid))
+
         try:
             return next(
-                filter(lambda x: x.uuid == str(uuid).lower(), self.characteristics)
+                filter(lambda x: x.uuid == uuid, self._characteristics.values())
             )
         except StopIteration:
             return None
@@ -84,10 +86,10 @@ class BleakGATTService(abc.ABC):
 class BleakGATTServiceCollection:
     """Simple data container for storing the peripheral's service complement."""
 
-    def __init__(self):
-        self.__services = {}
-        self.__characteristics = {}
-        self.__descriptors = {}
+    def __init__(self) -> None:
+        self.__services: dict[int, BleakGATTService] = {}
+        self.__characteristics: dict[int, BleakGATTCharacteristic] = {}
+        self.__descriptors: dict[int, BleakGATTDescriptor] = {}
 
     def __getitem__(
         self, item: Union[str, int, UUID]
@@ -98,7 +100,7 @@ class BleakGATTServiceCollection:
         return (
             self.get_service(item)
             or self.get_characteristic(item)
-            or self.get_descriptor(item)
+            or self.get_descriptor(cast(int, item))
         )
 
     def __iter__(self) -> Iterator[BleakGATTService]:
@@ -106,21 +108,21 @@ class BleakGATTServiceCollection:
         return iter(self.services.values())
 
     @property
-    def services(self) -> Dict[int, BleakGATTService]:
+    def services(self) -> dict[int, BleakGATTService]:
         """Returns dictionary of handles mapping to BleakGATTService"""
         return self.__services
 
     @property
-    def characteristics(self) -> Dict[int, BleakGATTCharacteristic]:
+    def characteristics(self) -> dict[int, BleakGATTCharacteristic]:
         """Returns dictionary of handles mapping to BleakGATTCharacteristic"""
         return self.__characteristics
 
     @property
-    def descriptors(self) -> Dict[int, BleakGATTDescriptor]:
+    def descriptors(self) -> dict[int, BleakGATTDescriptor]:
         """Returns a dictionary of integer handles mapping to BleakGATTDescriptor"""
         return self.__descriptors
 
-    def add_service(self, service: BleakGATTService):
+    def add_service(self, service: BleakGATTService) -> None:
         """Add a :py:class:`~BleakGATTService` to the service collection.
 
         Should not be used by end user, but rather by `bleak` itself.
@@ -140,16 +142,11 @@ class BleakGATTServiceCollection:
         if isinstance(specifier, int):
             return self.services.get(specifier)
 
-        _specifier = str(specifier).lower()
-
-        # Assume uuid usage.
-        # Convert 16-bit uuid to 128-bit uuid
-        if len(_specifier) == 4:
-            _specifier = f"0000{_specifier}-0000-1000-8000-00805f9b34fb"
+        uuid = normalize_uuid_str(str(specifier))
 
         x = list(
             filter(
-                lambda x: x.uuid.lower() == _specifier,
+                lambda x: x.uuid == uuid,
                 self.services.values(),
             )
         )
@@ -161,7 +158,7 @@ class BleakGATTServiceCollection:
 
         return x[0] if x else None
 
-    def add_characteristic(self, characteristic: BleakGATTCharacteristic):
+    def add_characteristic(self, characteristic: BleakGATTCharacteristic) -> None:
         """Add a :py:class:`~BleakGATTCharacteristic` to the service collection.
 
         Should not be used by end user, but rather by `bleak` itself.
@@ -184,10 +181,12 @@ class BleakGATTServiceCollection:
         if isinstance(specifier, int):
             return self.characteristics.get(specifier)
 
+        uuid = normalize_uuid_str(str(specifier))
+
         # Assume uuid usage.
         x = list(
             filter(
-                lambda x: x.uuid == str(specifier).lower(),
+                lambda x: x.uuid == uuid,
                 self.characteristics.values(),
             )
         )
@@ -199,7 +198,7 @@ class BleakGATTServiceCollection:
 
         return x[0] if x else None
 
-    def add_descriptor(self, descriptor: BleakGATTDescriptor):
+    def add_descriptor(self, descriptor: BleakGATTDescriptor) -> None:
         """Add a :py:class:`~BleakGATTDescriptor` to the service collection.
 
         Should not be used by end user, but rather by `bleak` itself.

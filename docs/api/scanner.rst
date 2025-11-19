@@ -16,8 +16,11 @@ more advanced use cases like long running programs, GUIs or connecting to
 multiple devices.
 
 .. automethod:: bleak.BleakScanner.discover
+.. automethod:: bleak.BleakScanner.find_device_by_name
 .. automethod:: bleak.BleakScanner.find_device_by_address
 .. automethod:: bleak.BleakScanner.find_device_by_filter
+.. autoclass:: bleak.BleakScanner.ExtraArgs
+    :members:
 
 
 ---------------------
@@ -61,22 +64,20 @@ following methods:
 Getting discovered devices and advertisement data
 -------------------------------------------------
 
-If you aren't using the "easy" class methods, there are two ways to get the
+If you aren't using the "easy" class methods, there are three ways to get the
 discovered devices and advertisement data.
 
 For event-driven programming, you can provide a ``detection_callback`` callback
 to the :class:`BleakScanner` constructor. This will be called back each time
 and advertisement is received.
 
+Alternatively, you can utilize the asynchronous iterator to iterate over
+advertisements as they are received. The method below returns an async iterator
+that yields the same tuples as otherwise provided to ``detection_callback``.
+
+.. automethod:: bleak.BleakScanner.advertisement_data
+
 Otherwise, you can use one of the properties below after scanning has stopped.
 
 .. autoproperty:: bleak.BleakScanner.discovered_devices
 .. autoproperty:: bleak.BleakScanner.discovered_devices_and_advertisement_data
-
-----------
-Deprecated
-----------
-
-.. automethod:: bleak.BleakScanner.register_detection_callback
-.. automethod:: bleak.BleakScanner.set_scanning_filter
-.. automethod:: bleak.BleakScanner.get_discovered_devices

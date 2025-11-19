@@ -1,28 +1,36 @@
-# -*- coding: utf-8 -*-
+import sys
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    if sys.platform != "android":
+        assert False, "This backend is only available on Android"
 
 import asyncio
 import logging
-import sys
 import warnings
-from typing import List, Optional
+from typing import Literal, Optional
 
 if sys.version_info < (3, 11):
     from async_timeout import timeout as async_timeout
 else:
     from asyncio import timeout as async_timeout
 
-if sys.version_info[:2] < (3, 8):
-    from typing_extensions import Literal
+if sys.version_info < (3, 12):
+    from typing_extensions import override
 else:
-    from typing import Literal
+    from typing import override
 
 from android.broadcast import BroadcastReceiver
 from android.permissions import Permission, request_permissions
 from jnius import cast, java_method
 
-from ...exc import BleakError
-from ..scanner import AdvertisementData, AdvertisementDataCallback, BaseBleakScanner
-from . import defs, utils
+from bleak.backends.p4android import defs, utils
+from bleak.backends.scanner import (
+    AdvertisementData,
+    AdvertisementDataCallback,
+    BaseBleakScanner,
+)
+from bleak.exc import BleakError
 
 logger = logging.getLogger(__name__)
 
@@ -48,7 +56,7 @@ class BleakScannerP4Android(BaseBleakScanner):
     def __init__(
         self,
         detection_callback: Optional[AdvertisementDataCallback],
-        service_uuids: Optional[List[str]],
+        service_uuids: Optional[list[str]],
         scanning_mode: Literal["active", "passive"],
         **kwargs,
     ):
@@ -63,10 +71,8 @@ class BleakScannerP4Android(BaseBleakScanner):
         self.__javascanner = None
         self.__callback = None
 
-    def __del__(self):
-        self.__stop()
-
-    async def start(self):
+    @override
+    async def start(self) -> None:
         if BleakScannerP4Android.__scanner is not None:
             raise BleakError("A BleakScanner is already scanning on this adapter.")
 
@@ -213,7 +219,8 @@ class BleakScannerP4Android(BaseBleakScanner):
 
                 return await self.start()
 
-    def __stop(self):
+    @override
+    async def stop(self) -> None:
         if self.__javascanner is not None:
             logger.debug("Stopping BTLE scan")
             self.__javascanner.stopScan(self.__callback.java)
@@ -222,21 +229,16 @@ class BleakScannerP4Android(BaseBleakScanner):
         else:
             logger.debug("BTLE scan already stopped")
 
-    async def stop(self):
-        self.__stop()
-
-    def set_scanning_filter(self, **kwargs):
-        # If we do end up implementing this, this should accept List<ScanFilter>
-        # and ScanSettings java objects to pass to startScan().
-        raise NotImplementedError("not implemented in Android backend")
-
-    def _handle_scan_result(self, result):
+    def _handle_scan_result(self, result) -> None:
         native_device = result.getDevice()
         record = result.getScanRecord()
 
         service_uuids = record.getServiceUuids()
         if service_uuids is not None:
             service_uuids = [service_uuid.toString() for service_uuid in service_uuids]
+
+        if not self.is_allowed_uuid(service_uuids):
+            return
 
         manufacturer_data = record.getManufacturerSpecificData()
         manufacturer_data = {
@@ -248,10 +250,10 @@ class BleakScannerP4Android(BaseBleakScanner):
             entry.getKey().toString(): bytes(entry.getValue())
             for entry in record.getServiceData().entrySet()
         }
-        tx_power = result.getTxPower()
+        tx_power = record.getTxPowerLevel()
 
         # change "not present" value to None to match other backends
-        if tx_power == defs.ScanResult.TX_POWER_NOT_PRESENT:
+        if tx_power == -2147483648:  # Integer#MIN_VALUE
             tx_power = None
 
         advertisement = AdvertisementData(
@@ -266,15 +268,13 @@ class BleakScannerP4Android(BaseBleakScanner):
 
         device = self.create_or_update_device(
             native_device.getAddress(),
+            native_device.getAddress(),
             native_device.getName(),
             native_device,
             advertisement,
         )
 
-        if not self._callback:
-            return
-
-        self._callback(device, advertisement)
+        self.call_detection_callbacks(device, advertisement)
 
 
 class _PythonScanCallback(utils.AsyncJavaCallbacks):

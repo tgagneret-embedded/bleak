@@ -1,22 +1,45 @@
-import logging
 import sys
-from typing import Any, Dict, List, Optional
+from typing import TYPE_CHECKING, cast
 
-if sys.version_info[:2] < (3, 8):
-    from typing_extensions import Literal
+if TYPE_CHECKING:
+    if sys.platform != "darwin":
+        assert False, "This backend is only available on macOS"
+
+import logging
+from typing import Any, Literal, Optional
+from warnings import warn
+
+if sys.version_info < (3, 12):
+    from typing_extensions import override
 else:
-    from typing import Literal
+    from typing import override
 
 import objc
 from CoreBluetooth import CBPeripheral
-from Foundation import NSBundle
+from Foundation import NSBundle, NSDictionary
 
-from ...exc import BleakError
-from ..scanner import AdvertisementData, AdvertisementDataCallback, BaseBleakScanner
-from .CentralManagerDelegate import CentralManagerDelegate
-from .utils import cb_uuid_to_str
+from bleak.args.corebluetooth import CBScannerArgs as _CBScannerArgs
+from bleak.backends.corebluetooth.CentralManagerDelegate import CentralManagerDelegate
+from bleak.backends.corebluetooth.utils import cb_uuid_to_str
+from bleak.backends.scanner import (
+    AdvertisementData,
+    AdvertisementDataCallback,
+    BaseBleakScanner,
+)
+from bleak.exc import BleakError
 
 logger = logging.getLogger(__name__)
+
+
+def __getattr__(name: str):
+    if name == "CBScannerArgs":
+        warn(
+            "importing CBScannerArgs from bleak.backends.corebluetooth.scanner is deprecated, use bleak.args.corebluetooth instead",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return _CBScannerArgs
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 class BleakScannerCoreBluetooth(BaseBleakScanner):
@@ -50,18 +73,22 @@ class BleakScannerCoreBluetooth(BaseBleakScanner):
     def __init__(
         self,
         detection_callback: Optional[AdvertisementDataCallback],
-        service_uuids: Optional[List[str]],
+        service_uuids: Optional[list[str]],
         scanning_mode: Literal["active", "passive"],
-        **kwargs
+        *,
+        cb: _CBScannerArgs,
+        **kwargs: Any,
     ):
         super(BleakScannerCoreBluetooth, self).__init__(
             detection_callback, service_uuids
         )
 
+        self._use_bdaddr = cb.get("use_bdaddr", False)
+
         if scanning_mode == "passive":
             raise BleakError("macOS does not support passive scanning")
 
-        self._manager = CentralManagerDelegate.alloc().init()
+        self._manager = CentralManagerDelegate()
         self._timeout: float = kwargs.get("timeout", 5.0)
         if (
             objc.macos_available(12, 0)
@@ -74,10 +101,20 @@ class BleakScannerCoreBluetooth(BaseBleakScanner):
                     "macOS 12.0, 12.1 and 12.2 require non-empty service_uuids kwarg, otherwise no advertisement data will be received"
                 )
 
-    async def start(self):
+    @override
+    async def start(self) -> None:
+        await self._manager.wait_until_ready()
+
         self.seen_devices = {}
 
-        def callback(p: CBPeripheral, a: Dict[str, Any], r: int) -> None:
+        def callback(p: CBPeripheral, a: NSDictionary, r: int) -> None:
+
+            service_uuids = [
+                cb_uuid_to_str(u) for u in a.get("kCBAdvDataServiceUUIDs", [])
+            ]
+
+            if not self.is_allowed_uuid(service_uuids):
+                return
 
             # Process service data
             service_data_dict_raw = a.get("kCBAdvDataServiceData", {})
@@ -87,17 +124,13 @@ class BleakScannerCoreBluetooth(BaseBleakScanner):
 
             # Process manufacturer data into a more friendly format
             manufacturer_binary_data = a.get("kCBAdvDataManufacturerData")
-            manufacturer_data = {}
+            manufacturer_data: dict[int, bytes] = {}
             if manufacturer_binary_data:
                 manufacturer_id = int.from_bytes(
                     manufacturer_binary_data[0:2], byteorder="little"
                 )
                 manufacturer_value = bytes(manufacturer_binary_data[2:])
                 manufacturer_data[manufacturer_id] = manufacturer_value
-
-            service_uuids = [
-                cb_uuid_to_str(u) for u in a.get("kCBAdvDataServiceUUIDs", [])
-            ]
 
             # set tx_power data if available
             tx_power = a.get("kCBAdvDataTxPowerLevel")
@@ -112,47 +145,36 @@ class BleakScannerCoreBluetooth(BaseBleakScanner):
                 platform_data=(p, a, r),
             )
 
+            if self._use_bdaddr:
+                # HACK: retrieveAddressForPeripheral_ is undocumented but seems to do the trick
+                address_bytes = cast(
+                    Optional[bytes],
+                    self._manager.central_manager.retrieveAddressForPeripheral_(p),  # type: ignore
+                )
+                if address_bytes is None:
+                    logger.debug(
+                        "Could not get Bluetooth address for %s. Ignoring this device.",
+                        p.identifier().UUIDString(),
+                    )
+                    return
+                address = address_bytes.hex(":").upper()
+            else:
+                address = p.identifier().UUIDString()
+
             device = self.create_or_update_device(
                 p.identifier().UUIDString(),
+                address,
                 p.name(),
-                (p, self._manager.central_manager.delegate()),
+                (p, self._manager),
                 advertisement_data,
             )
 
-            if not self._callback:
-                return
-
-            self._callback(device, advertisement_data)
+            self.call_detection_callbacks(device, advertisement_data)
 
         self._manager.callbacks[id(self)] = callback
         await self._manager.start_scan(self._service_uuids)
 
-    async def stop(self):
+    @override
+    async def stop(self) -> None:
         await self._manager.stop_scan()
         self._manager.callbacks.pop(id(self), None)
-
-    def set_scanning_filter(self, **kwargs):
-        """Set scanning filter for the scanner.
-
-        .. note::
-
-            This is not implemented for macOS yet.
-
-        Raises:
-
-           ``NotImplementedError``
-
-        """
-        raise NotImplementedError(
-            "Need to evaluate which macOS versions to support first..."
-        )
-
-    # macOS specific methods
-
-    @property
-    def is_scanning(self):
-        # TODO: Evaluate if newer macOS than 10.11 has isScanning.
-        try:
-            return self._manager.isScanning_
-        except Exception:
-            return None

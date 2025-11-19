@@ -13,7 +13,8 @@ import platform
 import sys
 
 from bleak import BleakClient
-from bleak.uuids import uuid16_dict
+from bleak.backends.characteristic import BleakGATTCharacteristic
+from bleak.uuids import normalize_uuid_16, uuid16_dict
 
 ADDRESS = (
     "24:71:89:cc:09:05"
@@ -65,40 +66,24 @@ f000ffc3-0451-4000-b000-000000000000
 f000ffc4-0451-4000-b000-000000000000
 """
 
-uuid16_dict = {v: k for k, v in uuid16_dict.items()}
+uuid16_lookup = {v: normalize_uuid_16(k) for k, v in uuid16_dict.items()}
 
-SYSTEM_ID_UUID = "0000{0:x}-0000-1000-8000-00805f9b34fb".format(
-    uuid16_dict.get("System ID")
-)
-MODEL_NBR_UUID = "0000{0:x}-0000-1000-8000-00805f9b34fb".format(
-    uuid16_dict.get("Model Number String")
-)
-DEVICE_NAME_UUID = "0000{0:x}-0000-1000-8000-00805f9b34fb".format(
-    uuid16_dict.get("Device Name")
-)
-FIRMWARE_REV_UUID = "0000{0:x}-0000-1000-8000-00805f9b34fb".format(
-    uuid16_dict.get("Firmware Revision String")
-)
-HARDWARE_REV_UUID = "0000{0:x}-0000-1000-8000-00805f9b34fb".format(
-    uuid16_dict.get("Hardware Revision String")
-)
-SOFTWARE_REV_UUID = "0000{0:x}-0000-1000-8000-00805f9b34fb".format(
-    uuid16_dict.get("Software Revision String")
-)
-MANUFACTURER_NAME_UUID = "0000{0:x}-0000-1000-8000-00805f9b34fb".format(
-    uuid16_dict.get("Manufacturer Name String")
-)
-BATTERY_LEVEL_UUID = "0000{0:x}-0000-1000-8000-00805f9b34fb".format(
-    uuid16_dict.get("Battery Level")
-)
-KEY_PRESS_UUID = "0000{0:x}-0000-1000-8000-00805f9b34fb".format(0xFFE1)
+SYSTEM_ID_UUID = uuid16_lookup["System ID"]
+MODEL_NBR_UUID = uuid16_lookup["Model Number String"]
+DEVICE_NAME_UUID = uuid16_lookup["Device Name"]
+FIRMWARE_REV_UUID = uuid16_lookup["Firmware Revision String"]
+HARDWARE_REV_UUID = uuid16_lookup["Hardware Revision String"]
+SOFTWARE_REV_UUID = uuid16_lookup["Software Revision String"]
+MANUFACTURER_NAME_UUID = uuid16_lookup["Manufacturer Name String"]
+BATTERY_LEVEL_UUID = uuid16_lookup["Battery Level"]
+KEY_PRESS_UUID = normalize_uuid_16(0xFFE1)
 # I/O test points on SensorTag.
 IO_DATA_CHAR_UUID = "f000aa65-0451-4000-b000-000000000000"
 IO_CONFIG_CHAR_UUID = "f000aa66-0451-4000-b000-000000000000"
 
 
-async def main(address):
-    async with BleakClient(address, winrt=dict(use_cached_services=True)) as client:
+async def main(address: str):
+    async with BleakClient(address, winrt={"use_cached_services": True}) as client:
         print(f"Connected: {client.is_connected}")
 
         system_id = await client.read_gatt_char(SYSTEM_ID_UUID)
@@ -132,7 +117,9 @@ async def main(address):
         battery_level = await client.read_gatt_char(BATTERY_LEVEL_UUID)
         print("Battery Level: {0}%".format(int(battery_level[0])))
 
-        async def notification_handler(characteristic, data):
+        async def notification_handler(
+            characteristic: BleakGATTCharacteristic, data: bytearray
+        ):
             print(f"{characteristic.description}: {data}")
 
         # Turn on the red light on the Sensor Tag by writing to I/O Data and I/O Config.
@@ -140,7 +127,7 @@ async def main(address):
         value = await client.read_gatt_char(IO_DATA_CHAR_UUID)
         print("I/O Data Pre-Write Value: {0}".format(value))
 
-        await client.write_gatt_char(IO_DATA_CHAR_UUID, write_value)
+        await client.write_gatt_char(IO_DATA_CHAR_UUID, write_value, response=True)
 
         value = await client.read_gatt_char(IO_DATA_CHAR_UUID)
         print("I/O Data Post-Write Value: {0}".format(value))
@@ -150,7 +137,7 @@ async def main(address):
         value = await client.read_gatt_char(IO_CONFIG_CHAR_UUID)
         print("I/O Config Pre-Write Value: {0}".format(value))
 
-        await client.write_gatt_char(IO_CONFIG_CHAR_UUID, write_value)
+        await client.write_gatt_char(IO_CONFIG_CHAR_UUID, write_value, response=True)
 
         value = await client.read_gatt_char(IO_CONFIG_CHAR_UUID)
         print("I/O Config Post-Write Value: {0}".format(value))

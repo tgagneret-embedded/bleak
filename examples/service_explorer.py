@@ -9,56 +9,139 @@ Created on 2019-03-25 by hbldh <henrik.blidh@nedomkull.com>
 
 """
 
-import sys
-import platform
+import argparse
 import asyncio
 import logging
+from typing import Optional
 
-from bleak import BleakClient
+from bleak import BleakClient, BleakScanner
 
 logger = logging.getLogger(__name__)
 
-ADDRESS = (
-    "24:71:89:cc:09:05"
-    if platform.system() != "Darwin"
-    else "B9EA5233-37EF-4DD6-87A8-2A875E821C46"
-)
+
+class Args(argparse.Namespace):
+    name: Optional[str]
+    address: Optional[str]
+    macos_use_bdaddr: bool
+    services: list[str]
+    pair: bool
+    debug: bool
 
 
-async def main(address):
-    async with BleakClient(address) as client:
-        logger.info(f"Connected: {client.is_connected}")
+async def main(args: Args):
+    logger.info("starting scan...")
+
+    if args.address:
+        device = await BleakScanner.find_device_by_address(
+            args.address, cb={"use_bdaddr": args.macos_use_bdaddr}
+        )
+        if device is None:
+            logger.error("could not find device with address '%s'", args.address)
+            return
+    elif args.name:
+        device = await BleakScanner.find_device_by_name(
+            args.name, cb={"use_bdaddr": args.macos_use_bdaddr}
+        )
+        if device is None:
+            logger.error("could not find device with name '%s'", args.name)
+            return
+    else:
+        raise ValueError("Either --name or --address must be provided")
+
+    logger.info("connecting to device...")
+
+    async with BleakClient(
+        device,
+        pair=args.pair,
+        services=args.services,
+        # Give the user plenty of time to enter a PIN code if paring is required.
+        timeout=90 if args.pair else 10,
+    ) as client:
+        logger.info("connected to %s (%s)", client.name, client.address)
 
         for service in client.services:
-            logger.info(f"[Service] {service}")
+            logger.info("[Service] %s", service)
+
             for char in service.characteristics:
                 if "read" in char.properties:
                     try:
-                        value = bytes(await client.read_gatt_char(char.uuid))
-                        logger.info(
-                            f"\t[Characteristic] {char} ({','.join(char.properties)}), Value: {value}"
-                        )
+                        value = await client.read_gatt_char(char)
+                        extra = f", Value: {value}"
                     except Exception as e:
-                        logger.error(
-                            f"\t[Characteristic] {char} ({','.join(char.properties)}), Value: {e}"
-                        )
-
+                        extra = f", Error: {e}"
                 else:
-                    value = None
-                    logger.info(
-                        f"\t[Characteristic] {char} ({','.join(char.properties)}), Value: {value}"
-                    )
+                    extra = ""
+
+                if "write-without-response" in char.properties:
+                    extra += f", Max write w/o rsp size: {char.max_write_without_response_size}"
+
+                logger.info(
+                    "  [Characteristic] %s (%s)%s",
+                    char,
+                    ",".join(char.properties),
+                    extra,
+                )
 
                 for descriptor in char.descriptors:
                     try:
-                        value = bytes(
-                            await client.read_gatt_descriptor(descriptor.handle)
-                        )
-                        logger.info(f"\t\t[Descriptor] {descriptor}) | Value: {value}")
+                        value = await client.read_gatt_descriptor(descriptor)
+                        logger.info("    [Descriptor] %s, Value: %r", descriptor, value)
                     except Exception as e:
-                        logger.error(f"\t\t[Descriptor] {descriptor}) | Value: {e}")
+                        logger.error("    [Descriptor] %s, Error: %s", descriptor, e)
+
+        logger.info("disconnecting...")
+
+    logger.info("disconnected")
 
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO)
-    asyncio.run(main(sys.argv[1] if len(sys.argv) == 2 else ADDRESS))
+    parser = argparse.ArgumentParser()
+
+    device_group = parser.add_mutually_exclusive_group(required=True)
+
+    device_group.add_argument(
+        "--name",
+        metavar="<name>",
+        help="the name of the bluetooth device to connect to",
+    )
+    device_group.add_argument(
+        "--address",
+        metavar="<address>",
+        help="the address of the bluetooth device to connect to",
+    )
+
+    parser.add_argument(
+        "--macos-use-bdaddr",
+        action="store_true",
+        help="when true use Bluetooth address instead of UUID on macOS",
+    )
+
+    parser.add_argument(
+        "--services",
+        nargs="+",
+        metavar="<uuid>",
+        help="if provided, only enumerate matching service(s)",
+    )
+
+    parser.add_argument(
+        "--pair",
+        action="store_true",
+        help="pair with the device before connecting if not already paired",
+    )
+
+    parser.add_argument(
+        "-d",
+        "--debug",
+        action="store_true",
+        help="sets the log level to debug",
+    )
+
+    args = parser.parse_args(namespace=Args())
+
+    log_level = logging.DEBUG if args.debug else logging.INFO
+    logging.basicConfig(
+        level=log_level,
+        format="%(asctime)-15s %(name)-8s %(levelname)s: %(message)s",
+    )
+
+    asyncio.run(main(args))

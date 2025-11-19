@@ -8,12 +8,146 @@ When things don't seem to be working right, here are some things to try.
 Common Mistakes
 ---------------
 
+Calling ``asyncio.run()`` more than once
+========================================
+
+Bleak requires the same asyncio run loop to be used for all of its operations.
+And it requires the loop to always be running because there are background tasks
+that need to always be running. Therefore, make sure you only call ``asyncio.run()``
+once at the start of your program. **Your program will not work correctly if you
+call it more than once.** Even if it seems like it is working, crashes and other
+problems will occur eventually.
+
+DON'T!
+
+.. code-block:: python
+
+    async def scan():
+        return await BleakScanner.find_device_by_name("My Device")
+
+    async def connect(device):
+        async with BleakClient(device) as client:
+            data = await client.read_gatt_char(MY_CHAR_UUID)
+            print("received:" data)
+
+    # Do not wrap each function call in asyncio.run() like this!
+    device = asyncio.run(scan())
+    if not device:
+        print("Device not found")
+    else:
+        asyncio.run(connect(device))
+
+
+DO!
+
+.. code-block:: python
+
+    async def scan():
+        return await BleakScanner.find_device_by_name("My Device")
+
+    async def connect(device):
+        async with BleakClient(device) as client:
+            data = await client.read_gatt_char(MY_CHAR_UUID)
+            print("received:" data)
+
+    # Do have one async main function that does everything.
+    async def main():
+        device = await scan()
+        if not device:
+            print("Device not found")
+            return
+
+        await connect(device)
+
+    asyncio.run(main())
+
+
+DON'T!
+
+.. code-block:: python
+
+    async def scan_and_connect():
+        device = await BleakScanner.find_device_by_name("My Device")
+        if not device:
+            print("Device not found")
+            return
+
+        async with BleakClient(device) as client:
+            data = await client.read_gatt_char(MY_CHAR_UUID)
+            print("received:" data)
+
+
+    while True:
+        # Don't call asyncio.run() multiple times like this!
+        asyncio.run(scan_and_connect())
+        # Never use blocking sleep in an asyncio programs!
+        time.sleep(5)
+
+
+DO!
+
+.. code-block:: python
+
+    async def scan_and_connect():
+        device = await BleakScanner.find_device_by_name("My Device")
+        if not device:
+            print("Device not found")
+            return
+
+        async with BleakClient(device) as client:
+            data = await client.read_gatt_char(MY_CHAR_UUID)
+            print("received:" data)
+
+    # Do have one async main function that does everything.
+    async def main():
+        while True:
+            await scan_and_connect()
+            # Do use asyncio.sleep() in an asyncio program.
+            await asyncio.sleep(5)
+
+    asyncio.run(main())
+
+
+Naming your script ``bleak.py``
+===============================
+
 Many people name their first script ``bleak.py``. This causes the script to
 crash with an ``ImportError`` similar to::
 
     ImportError: cannot import name 'BleakClient' from partially initialized module 'bleak' (most likely due to a circular import) (bleak.py)`
 
 To fix the error, change the name of the script to something other than ``bleak.py``.
+
+----------
+Linux Bugs
+----------
+
+Occasional "Not connected" errors or missing advertisments on Raspberry Pi
+==========================================================================
+
+If you are using the built in WiFi/Bluetooth module on a Raspberry Pi and are
+seeing occasional "Not connected" errors, also manifesting as HCI error 0x3e
+and BlueZ error "Software caused connection abort", when trying to connect to
+a device, it may be due to wifi interference on the chip level. This can also
+cause advertisements to be missed when scanning.
+
+As a test the wifi interface can be disabled using either
+
+.. code-block:: shell
+
+    sudo rfkill block wlan
+
+or
+
+.. code-block:: shell
+
+    sudo nmcli radio wifi off
+
+See `this <https://github.com/project-chip/connectedhomeip/issues/16178>`_ Matter issue
+with similar problems on Raspberry Pi and other devices.
+
+If you need Wi-Fi, you can possibly work around the issue by using a USB
+Bluetooth adapter instead.
 
 ----------
 macOS Bugs
@@ -33,10 +167,8 @@ If you see a crash similar to this::
     Termination Reason:    Namespace TCC, Code 0
     This app has crashed because it attempted to access privacy-sensitive data without a usage description. The app's Info.plist must contain an NSBluetoothAlwaysUsageDescription key with a string value explaining to the user how the app uses this data.
 
-It is not a problem with Bleak. It is a problem with your terminal application.
-
-Ideally, the terminal application should be fixed by adding ``NSBluetoothAlwaysUsageDescription``
-to the ``Info.plist`` file (`example <https://github.com/gnachman/iTerm2/pull/457/commits/626068e026ffb958242034129a1974ff87b21a32>`_).
+It is not a problem with Bleak. It is a problem with your application. The application has to add
+``NSBluetoothAlwaysUsageDescription`` to the ``Info.plist`` file. See :ref:`cb-permissions` for more details.
 
 It is also possible to manually add the app to the list of Bluetooth apps in
 the *Privacy* settings in the macOS *System Preferences*.
@@ -44,9 +176,9 @@ the *Privacy* settings in the macOS *System Preferences*.
 .. image:: images/macos-privacy-bluetooth.png
 
 If the app is already in the list but the checkbox for Bluetooth is disabled,
-you will get the a ``BleakError``: "BLE is not authorized - check macOS privacy settings".
-instead of crashing with ``SIGABRT``, in which case you need to check the box
-to allow Bluetooth for the app that is running Python.
+you will get a :class:`BleakBluetoothNotAvailableError` instead of crashing with ``SIGABRT``,
+in which case you need to check the box to allow Bluetooth for the app that is 
+running Python.
 
 
 No devices found when scanning on macOS 12
@@ -64,6 +196,72 @@ error logged:
 See `#635 <https://github.com/hbldh/bleak/issues/635>`_ and
 `#720 <https://github.com/hbldh/bleak/issues/720>`_ for more information
 including some partial workarounds if you need to support these macOS versions.
+
+------------
+Windows Bugs
+------------
+
+Not working when threading model is STA
+=======================================
+
+Packages like ``pywin32`` and it's subsidiaries have an unfortunate side effect
+of initializing the threading model to Single Threaded Apartment (STA) when
+imported. This causes async WinRT functions to never complete if Bleak is being
+used in a console application (no Windows graphical user interface). This is
+because there isn't a Windows message loop running to handle async callbacks.
+Bleak, when used in a console application, needs to run in a Multi Threaded
+Apartment (MTA) instead (this happens automatically on the first WinRT call).
+
+Bleak should detect this and raise an exception with a message similar to::
+
+    Thread is configured for Windows GUI but callbacks are not working.
+
+You can tell a ``pywin32`` package caused the issue by checking for
+``"pythoncom" in sys.modules``. If it is there, then likely it triggered the
+problem. You can avoid this by setting ``sys.coinit_flags = 0`` before importing
+any package that indirectly imports ``pythoncom``. This will cause ``pythoncom``
+to use the default threading model (MTA) instead of STA.
+
+Example::
+
+    import sys
+    sys.coinit_flags = 0  # 0 means MTA
+
+    import win32com  # or any other package that causes the issue
+
+
+If the issue was caused by something other than the ``pythoncom`` module, there
+are a couple of other helper functions you can try.
+
+If your program has a graphical user interface and the UI framework *and* it is
+properly integrated with asyncio *and* Bleak is not running on a background
+thread then call ``allow_sta()`` before calling any other Bleak APis::
+
+    try:
+        from bleak.backends.winrt.util import allow_sta
+        # tell Bleak we are using a graphical user interface that has been properly
+        # configured to work with asyncio
+        allow_sta()
+    except ImportError:
+        # other OSes and older versions of Bleak will raise ImportError which we
+        # can safely ignore
+        pass
+
+The more typical case, though, is that some library has imported something similar
+to ``pythoncom`` with the same unwanted side effect of initializing the main
+thread of a console application to STA. In this case, you can uninitialize the
+threading model like this::
+
+    import naughty_module  # this sets current thread to STA :-(
+
+    try:
+        from bleak.backends.winrt.util import uninitialize_sta
+
+        uninitialize_sta()  # undo the unwanted side effect
+    except ImportError:
+        # not Windows, so no problem
+        pass
+
 
 --------------
 Enable Logging
@@ -103,9 +301,9 @@ Python::
     from bleak.backends.device import BLEDevice
 
 
-    async def find_all_devices_services()
-        scanner = BleakScanner()
-        devices: Sequence[BLEDevice] = scanner.discover(timeout=5.0)
+    async def find_all_devices_services():
+        devices: Sequence[BLEDevice] = await BleakScanner.discover(timeout=5.0)
+
         for d in devices:
             async with BleakClient(d) as client:
                 print(client.services)
@@ -172,22 +370,37 @@ macOS
 On macOS, special software is required to capture and view Bluetooth traffic.
 You will need to sign up for an Apple Developer account to obtain this software.
 
-1.  Go to `<https://developer.apple.com/download/more/>`_ and download *Additional
-    Tools for Xcode ...* where ... is the Xcode version corresponding to your macOS
-    version (e.g. 12 for Big Sur, 11 for Mojave, etc.).
+1.  Starting with macOS 14.5, you will need to download and install the Bluetooth
+    logging profile from the Apple develop `Profiles and Logs`_ page. Follow the
+    instruction provided in the link, then continue with the steps below.
 
-2.  Open the disk image and in the *Hardware* folder, double-click the *PacketLogger.app*
-    to run it.
+    .. tip:: After installing the ``Bluetooth_macOS.mobileconfig`` file, the
+             profile can be found in *System Settings* under *Privacy and Security*
+             > *Others* > *Profiles*. You have to go there to actually install
+             the profile. Then reboot your computer.
 
-3.  Click the *Clear* button in the toolbar to clear the old data.
+    If you have an older version of macOS, you can skip this step.
 
-4.  Run your Python script to reproduce the problem.
+2.  Go to the Apple developer `More Downloads`_ page and download *Additional
+    Tools for Xcode ...* where ... is the Xcode version corresponding to your
+    macOS version (the XCode version is generally one higher than the macOS
+    version, e.g. XCode 15 for macOS Sonoma 14).
 
-5.  Click the *Stop* button in the toolbar to stop the capture.
+3.  Open the disk image and in the *Hardware* folder, double-click the
+    *PacketLogger.app* to run it.
+
+4.  Click the *Clear* button in the toolbar to clear the old data.
+
+5.  Run your Python script to reproduce the problem.
+
+6.  Click the *Stop* button in the toolbar to stop the capture.
 
 .. tip:: The Bluetooth traffic can be viewed in the *PacketLogger.app* or it can
          be saved to a file and viewed in `Wireshark`_.
 
+.. _Profiles and Logs: https://developer.apple.com/bug-reporting/profiles-and-logs/?name=bluetooth&platform=macos
+
+.. _More Downloads: https://developer.apple.com/download/all/?q=additional%20tools%20for%20xcode
 
 Linux
 =====

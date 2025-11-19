@@ -1,13 +1,21 @@
-# -*- coding: utf-8 -*-
+import sys
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    if sys.platform != "android":
+        assert False, "This backend is only available on Android"
 
 import enum
 
-import bleak.exc
 from jnius import autoclass, cast
+
+import bleak.exc
+from bleak.uuids import normalize_uuid_16
 
 # caching constants avoids unnecessary extra use of the jni-python interface, which can be slow
 
 List = autoclass("java.util.ArrayList")
+UUID = autoclass("java.util.UUID")
 BluetoothAdapter = autoclass("android.bluetooth.BluetoothAdapter")
 ScanCallback = autoclass("android.bluetooth.le.ScanCallback")
 ScanFilter = autoclass("android.bluetooth.le.ScanFilter")
@@ -74,15 +82,4 @@ GATT_STATUS_STRINGS = {
     0x0101: "Failure",
 }
 
-CHARACTERISTIC_PROPERTY_DBUS_NAMES = {
-    BluetoothGattCharacteristic.PROPERTY_BROADCAST: "broadcast",
-    BluetoothGattCharacteristic.PROPERTY_EXTENDED_PROPS: "extended-properties",
-    BluetoothGattCharacteristic.PROPERTY_INDICATE: "indicate",
-    BluetoothGattCharacteristic.PROPERTY_NOTIFY: "notify",
-    BluetoothGattCharacteristic.PROPERTY_READ: "read",
-    BluetoothGattCharacteristic.PROPERTY_SIGNED_WRITE: "authenticated-signed-writes",
-    BluetoothGattCharacteristic.PROPERTY_WRITE: "write",
-    BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE: "write-without-response",
-}
-
-CLIENT_CHARACTERISTIC_CONFIGURATION_UUID = "00002902-0000-1000-8000-00805f9b34fb"
+CLIENT_CHARACTERISTIC_CONFIGURATION_UUID = normalize_uuid_16(0x2902)

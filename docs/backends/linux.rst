@@ -9,18 +9,6 @@ over DBus. Communication uses the `dbus-fast
 DBus messaging.
 
 
-Special handling for ``write_gatt_char``
-----------------------------------------
-
-The ``type`` option to the ``Characteristic.WriteValue``
-method was added to
-`Bluez in 5.51 <https://git.kernel.org/pub/scm/bluetooth/bluez.git/commit?id=fa9473bcc48417d69cc9ef81d41a72b18e34a55a>`_
-Before that commit, ``Characteristic.WriteValue`` was only "Write with response".
-
-``Characteristic.AcquireWrite`` was added in
-`Bluez 5.46 <https://git.kernel.org/pub/scm/bluetooth/bluez.git/commit/doc/gatt-api.txt?id=f59f3dedb2c79a75e51a3a0d27e2ae06fefc603e>`_
-which can be used to "Write without response", but for older versions of Bluez (5.43, 5.44, 5.45), it is not possible to "Write without response".
-
 Resolving services with ``get_services``
 ----------------------------------------
 
@@ -40,6 +28,15 @@ possible to use Bleak with multiple event loops, even at the same time, but
 individual Bleak objects should not be shared between event loops. Otherwise,
 RuntimeErrors similar to ``[...] got Future <Future pending> attached to a
 different loop`` will be thrown.
+
+D-Bus Authentication
+--------------------
+
+Connecting to the host DBus from within a user namespace will fail. This is
+because the remapped UID will not match the UID that the hosts sees. To work
+around this, you can hardcode a UID with the `BLEAK_DBUS_AUTH_UID` environment
+variable.
+
 
 API
 ---
