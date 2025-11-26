@@ -79,16 +79,21 @@ class Agent(ServiceInterface):
         self._tasks.add(task)
 
         try:
-            pin = await task
+            key = await task
         except asyncio.CancelledError:
             raise DBusError("org.bluez.Error.Canceled", "task canceled")
         finally:
             self._tasks.remove(task)
 
-        if not pin:
+        if not key:
             raise DBusError("org.bluez.Error.Rejected", "user rejected")
 
-        return int(pin)
+        try:
+            passkey = int(key)
+        except ValueError:
+            raise DBusError("org.bluez.Error.Rejected", "invalid passkey")
+
+        return passkey
 
     @method()
     @no_type_check

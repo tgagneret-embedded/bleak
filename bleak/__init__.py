@@ -587,7 +587,6 @@ class BleakClient:
         exc_tb: Optional[TracebackType],
     ) -> None:
         await self.disconnect()
-        self.close()
 
     # Connectivity methods
 

@@ -119,9 +119,6 @@ class BleakClientBlueZDBus(BaseBleakClient):
             "pairing_callbacks"
         )
 
-    def close(self):
-        self._bus.disconnect()
-
     # Connectivity methods
 
     @override
@@ -378,7 +375,7 @@ class BleakClientBlueZDBus(BaseBleakClient):
         logger.debug("_cleanup_all(%s)", self._device_path)
 
         # Reset all stored services.
-        self.services = BleakGATTServiceCollection()
+        self.services = None
         self._services_resolved = False
 
         if self._remove_device_watcher:
@@ -910,6 +907,7 @@ class BleakClientBlueZDBus(BaseBleakClient):
         """
         self._notification_callbacks[characteristic.obj[0]] = callback
 
+        assert self._bus is not None
         reply = await self._bus.call(
             Message(
                 destination=defs.BLUEZ_SERVICE,

@@ -67,9 +67,6 @@ class BaseBleakClient(abc.ABC):
         """See :meth:`bleak.BleakClient.name`."""
         raise NotImplementedError
 
-    def close(self):
-        pass
-
     @property
     @abc.abstractmethod
     def mtu_size(self) -> int:

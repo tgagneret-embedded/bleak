@@ -14,50 +14,24 @@ from bleak.exc import (
 class AgentCallbacks(BaseBleakAgentCallbacks):
     def __init__(self) -> None:
         super().__init__()
-        self._reader = asyncio.StreamReader()
-
-    async def __aenter__(self):
-        loop = asyncio.get_running_loop()
-        protocol = asyncio.StreamReaderProtocol(self._reader)
-        self._input_transport, _ = await loop.connect_read_pipe(
-            lambda: protocol, sys.stdin
-        )
-        return self
-
-    async def __aexit__(self, *args):
-        self._input_transport.close()
 
     async def _input(self, msg: str) -> str:
         """
         Async version of the builtin input function.
         """
-        print(msg, end=" ", flush=True)
-        return (await self._reader.readline()).decode().strip()
+        return input(msg)
 
-    async def confirm(self, device: BLEDevice) -> bool:
+    async def request_passkey(self, device: BLEDevice) -> str:
         print(f"{device.name} wants to pair.")
-        response = await self._input("confirm (y/n)?")
+        response = await self._input("enter passkey: ")
 
-        return response.lower().startswith("y")
+        return response
 
-    async def confirm_pin(self, device: BLEDevice, pin: str) -> bool:
+    async def confirm_passkey(self, device: BLEDevice, pin: str) -> bool:
         print(f"{device.name} wants to pair.")
         response = await self._input(f"does {pin} match (y/n)?")
 
         return response.lower().startswith("y")
-
-    async def display_pin(self, device: BLEDevice, pin: str) -> None:
-        print(f"{device.name} wants to pair.")
-        print(f"enter this pin on the device: {pin}")
-        # wait for cancellation
-        await asyncio.Event().wait()
-
-    async def request_pin(self, device: BLEDevice) -> str:
-        print(f"{device.name} wants to pair.")
-        response = await self._input("enter pin:")
-
-        return response
-
 
 async def main(addr: str, unpair: bool, auto: bool) -> None:
     if unpair:
@@ -76,22 +50,20 @@ async def main(addr: str, unpair: bool, auto: bool) -> None:
         print("device was not found")
         return
 
+    callbacks = AgentCallbacks()
     if auto:
         print("connecting and pairing...")
 
-        async with (
-            AgentCallbacks() as callbacks,
-            BleakClient(device, pairing_callbacks=callbacks) as client,
-        ):
+        async with BleakClient(device, pair=True, pairing_callbacks=callbacks) as client:
             print(f"connection and pairing to {client.address} successful")
 
     else:
         print("connecting...")
 
-        async with BleakClient(device) as client, AgentCallbacks() as callbacks:
+        async with BleakClient(device, pairing_callbacks=callbacks) as client:
             try:
                 print("pairing...")
-                await client.pair(callbacks)
+                await client.pair()
                 print("pairing successful")
             except BleakPairingCancelledError:
                 print("paring was canceled")
