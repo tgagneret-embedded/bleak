@@ -17,6 +17,7 @@ from collections.abc import Callable
 from contextvars import Context
 from ctypes import WinError
 from typing import Any, Generic, Optional, Protocol, Sequence, TypeVar, Union, cast
+
 from warnings import
                 warn(
                     "protection_level is deprecated and will be removed in a future version. The default protection level has changed, so it should be safe to omit this argument.",

@@ -30,6 +30,7 @@ else:
     from asyncio import timeout as async_timeout
     from typing import Never, Self, Unpack, assert_never
 
+from bleak.agent import BaseBleakAgentCallbacks
 from bleak.args.bluez import BlueZScannerArgs
 from bleak.args.corebluetooth import CBScannerArgs, CBStartNotifyArgs
 from bleak.args.winrt import WinRTClientArgs

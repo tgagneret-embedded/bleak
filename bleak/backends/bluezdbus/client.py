@@ -10,7 +10,6 @@ if TYPE_CHECKING:
         assert False, "This backend is only available on Linux"
 
 import asyncio
-import contextlib
 import logging
 import os
 import warnings
@@ -35,17 +34,18 @@ from dbus_fast.message import Message
 from dbus_fast.signature import Variant
 
 from bleak import BleakScanner
+from bleak.agent import BaseBleakAgentCallbacks
 from bleak.backends.bluezdbus import defs
+from bleak.backends.bluezdbus.agent import bluez_agent
 from bleak.backends.bluezdbus.manager import get_global_bluez_manager
 from bleak.backends.bluezdbus.scanner import BleakScannerBlueZDBus
-from bleak.backends.bluezdbus.utils import assert_reply, get_dbus_authenticator
+from bleak.backends.bluezdbus.utils import assert_reply
 from bleak.backends.bluezdbus.version import BlueZFeatures
 from bleak.backends.characteristic import BleakGATTCharacteristic
 from bleak.backends.client import BaseBleakClient, NotifyCallback
 from bleak.backends.descriptor import BleakGATTDescriptor
 from bleak.backends.device import BLEDevice
 from bleak.backends.service import BleakGATTServiceCollection
-from bleak.backends.bluezdbus.agent import bluez_agent
 from bleak.exc import BleakDBusError, BleakDeviceNotFoundError, BleakError
 
 logger = logging.getLogger(__name__)

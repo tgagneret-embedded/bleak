@@ -71,7 +71,7 @@ class BleakClientCoreBluetooth(BaseBleakClient):
         self._central_manager_delegate: Optional[CentralManagerDelegate] = None
 
         if kwargs.get("pairing_callbacks"):
-            warnings.warn(
+            logger.warn(
                 "Pairing is not available in Core Bluetooth.",
                 RuntimeWarning,
                 stacklevel=2,

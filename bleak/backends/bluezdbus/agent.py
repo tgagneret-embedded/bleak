@@ -17,12 +17,11 @@ from dbus_fast.aio import MessageBus
 from dbus_fast.service import ServiceInterface, method
 from dbus_fast.signature import Variant
 
-from bleak.backends.device import BLEDevice
-
 from bleak.agent import BaseBleakAgentCallbacks
 from bleak.backends.bluezdbus import defs
 from bleak.backends.bluezdbus.manager import get_global_bluez_manager
 from bleak.backends.bluezdbus.utils import assert_reply
+from bleak.backends.device import BLEDevice
 
 logger = logging.getLogger(__name__)
 
@@ -133,6 +132,8 @@ class Agent(ServiceInterface):
                     body=[defs.DEVICE_INTERFACE, "Trusted", Variant("b", True)],
                 )
             )
+            assert reply
+            assert_reply(reply)
 
     @method()
     @no_type_check
@@ -181,6 +182,7 @@ async def bluez_agent(bus: MessageBus, callbacks: BaseBleakAgentCallbacks):
             )
         )
 
+        assert reply
         assert_reply(reply)
 
         try:
@@ -197,6 +199,7 @@ async def bluez_agent(bus: MessageBus, callbacks: BaseBleakAgentCallbacks):
                 )
             )
 
+            assert reply
             assert_reply(reply)
 
     finally:

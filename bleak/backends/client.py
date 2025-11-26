@@ -15,6 +15,7 @@ if sys.version_info < (3, 12):
 else:
     from collections.abc import Buffer
 
+from bleak.agent import BaseBleakAgentCallbacks
 from bleak.backends.characteristic import BleakGATTCharacteristic
 from bleak.backends.descriptor import BleakGATTDescriptor
 from bleak.backends.device import BLEDevice
@@ -58,7 +59,6 @@ class BaseBleakClient(abc.ABC):
         self._pairing_callbacks: Optional[BaseBleakAgentCallbacks] = kwargs.get(
             "pairing_callbacks"
         )
-
 
     # NB: this is not marked as @abc.abstractmethod because that would break
     # 3rd-party backends. We might change this in the future to make it required.

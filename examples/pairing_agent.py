@@ -2,12 +2,12 @@ import argparse
 import asyncio
 import sys
 
-from bleak import BleakScanner, BleakClient, BaseBleakAgentCallbacks
+from bleak import BaseBleakAgentCallbacks, BleakClient, BleakScanner
 from bleak.backends.device import BLEDevice
 from bleak.exc import (
+    BleakDeviceNotFoundError,
     BleakPairingCancelledError,
     BleakPairingFailedError,
-    BleakDeviceNotFoundError,
 )
 
 
@@ -79,9 +79,10 @@ async def main(addr: str, unpair: bool, auto: bool) -> None:
     if auto:
         print("connecting and pairing...")
 
-        async with AgentCallbacks() as callbacks, BleakClient(
-            device, pairing_callbacks=callbacks
-        ) as client:
+        async with (
+            AgentCallbacks() as callbacks,
+            BleakClient(device, pairing_callbacks=callbacks) as client,
+        ):
             print(f"connection and pairing to {client.address} successful")
 
     else:
