@@ -15,13 +15,14 @@ from typing import Set, no_type_check
 from dbus_fast import DBusError, Message
 from dbus_fast.aio import MessageBus
 from dbus_fast.service import ServiceInterface, method
+from dbus_fast.signature import Variant
 
 from bleak.backends.device import BLEDevice
 
-from ...agent import BaseBleakAgentCallbacks
-from . import defs
-from .manager import get_global_bluez_manager
-from .utils import assert_reply
+from bleak.agent import BaseBleakAgentCallbacks
+from bleak.backends.bluezdbus import defs
+from bleak.backends.bluezdbus.manager import get_global_bluez_manager
+from bleak.backends.bluezdbus.utils import assert_reply
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +48,6 @@ class Agent(ServiceInterface):
             props["Address"],
             props["Alias"],
             {"path": device_path, "props": props},
-            props.get("RSSI", -127),
         )
 
     @method()
@@ -76,7 +76,7 @@ class Agent(ServiceInterface):
 
         ble_device = await self._create_ble_device(device)
 
-        task = asyncio.create_task(self._callbacks.request_pin(ble_device))
+        task = asyncio.create_task(self._callbacks.request_passkey(ble_device))
         self._tasks.add(task)
 
         try:
@@ -105,7 +105,34 @@ class Agent(ServiceInterface):
     async def RequestConfirmation(self, device: "o", passkey: "u"):  # noqa: F821 N802
         passkey = f"{passkey:06}"
         logger.debug("RequestConfirmation %s %s", device, passkey)
-        raise NotImplementedError
+
+        ble_device = await self._create_ble_device(device)
+
+        task = asyncio.create_task(self._callbacks.confirm_passkey(ble_device, passkey))
+        self._tasks.add(task)
+
+        try:
+            result = await task
+        except asyncio.CancelledError:
+            raise DBusError("org.bluez.Error.Canceled", "task canceled")
+        finally:
+            self._tasks.remove(task)
+
+        if not result:
+            raise DBusError("org.bluez.Error.Rejected", "user rejected")
+        else:
+            manager = await get_global_bluez_manager()
+            # Set device as trusted.
+            reply = await manager._bus.call(
+                Message(
+                    destination=defs.BLUEZ_SERVICE,
+                    path=device,
+                    interface=defs.PROPERTIES_INTERFACE,
+                    member="Set",
+                    signature="ssv",
+                    body=[defs.DEVICE_INTERFACE, "Trusted", Variant("b", True)],
+                )
+            )
 
     @method()
     @no_type_check

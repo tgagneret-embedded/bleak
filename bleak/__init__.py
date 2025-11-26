@@ -522,11 +522,7 @@ class BleakClient:
             services=(
                 None if services is None else set(map(normalize_uuid_str, services))
             ),
-            pairing_callback=(
-                None
-                if pairing_callback is None
-                else functools.partial(pairing_callback, self)
-            ),
+            pairing_callbacks=pairing_callbacks,
             timeout=timeout,
             winrt=winrt,
             **kwargs,
@@ -591,16 +587,6 @@ class BleakClient:
     ) -> None:
         await self.disconnect()
         self.close()
-
-    def __del__(self):
-        # Remember kids: __del__is NOT guaranteed to run EVER!
-        # Use the context manager or call close explicitly.
-        # This is only here for people with long running programs that didn't
-        # follow that advice so that they don't run out of file descriptors.
-        self.close()
-
-    def close(self):
-        self._backend.close()
 
     # Connectivity methods
 
