@@ -30,6 +30,7 @@ else:
     from asyncio import timeout as async_timeout
     from typing import Never, Self, Unpack, assert_never
 
+from bleak.agent import BaseBleakAgentCallbacks
 from bleak.args.bluez import BlueZScannerArgs
 from bleak.args.corebluetooth import CBScannerArgs, CBStartNotifyArgs
 from bleak.args.winrt import WinRTClientArgs
@@ -452,6 +453,13 @@ class BleakClient:
             Callback that will be scheduled in the event loop when the client is
             disconnected. The callable must take one argument, which will be
             this client object.
+        pairing_callbacks:
+            Optional callbacks used in the pairing process (e.g. displaying,
+            confirming, requesting pin). If provided here instead of to the
+            :meth:`pair` method as ``callbacks`` parameter, device will be
+            implicitly paired during connection establishment. This is useful
+            for devices sending Slave Security Request immediately after
+            connection, requiring pairing before GATT service discovery.
         services:
             Optional list of services to filter. If provided, only these services
             will be resolved. This may or may not reduce the time needed to
@@ -509,6 +517,7 @@ class BleakClient:
         address_or_ble_device: Union[BLEDevice, str],
         disconnected_callback: Optional[Callable[[BleakClient], None]] = None,
         services: Optional[Iterable[str]] = None,
+        pairing_callbacks: Optional[BaseBleakAgentCallbacks] = None,
         *,
         timeout: float = 10.0,
         pair: bool = False,
@@ -532,6 +541,7 @@ class BleakClient:
             services=(
                 None if services is None else set(map(normalize_uuid_str, services))
             ),
+            pairing_callbacks=pairing_callbacks,
             timeout=timeout,
             winrt=winrt,
             **kwargs,
