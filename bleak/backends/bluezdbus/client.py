@@ -39,7 +39,7 @@ from bleak.backends.bluezdbus import defs
 from bleak.backends.bluezdbus.agent import bluez_agent
 from bleak.backends.bluezdbus.manager import get_global_bluez_manager
 from bleak.backends.bluezdbus.scanner import BleakScannerBlueZDBus
-from bleak.backends.bluezdbus.utils import assert_reply
+from bleak.backends.bluezdbus.utils import assert_reply, get_dbus_authenticator
 from bleak.backends.bluezdbus.version import BlueZFeatures
 from bleak.backends.characteristic import BleakGATTCharacteristic
 from bleak.backends.client import BaseBleakClient, NotifyCallback
@@ -98,7 +98,9 @@ class BleakClientBlueZDBus(BaseBleakClient):
         # we can add a handler for them) and also ensures that the pairing
         # agent will only handle handle requests for this specific connection.
         self._bus: MessageBus = MessageBus(
-            bus_type=BusType.SYSTEM, negotiate_unix_fd=True
+            bus_type=BusType.SYSTEM,
+            negotiate_unix_fd=True,
+            auth=get_dbus_authenticator(),
         )
 
         # tracks device watcher subscription
