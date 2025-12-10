@@ -196,8 +196,8 @@ class BleakClientWinRT(BaseBleakClient):
         self._max_pdu_size_changed_token: Optional[EventRegistrationToken] = None
 
         if kwargs.get("pairing_callbacks"):
-            logger.warn(
-                "Pairing is not available in WinRT.",
+            logger.warning(
+                "Pairing is not implemented in WinRT.",
                 RuntimeWarning,
                 stacklevel=2,
             )
