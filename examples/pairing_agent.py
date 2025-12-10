@@ -32,22 +32,32 @@ class AgentCallbacks(BaseBleakAgentCallbacks):
         return response.lower().startswith("y")
 
 
-async def main(addr: str, unpair: bool, auto: bool) -> None:
+async def main(address: str | None, name: str | None, unpair: bool, auto: bool) -> None:
     if unpair:
         print("unpairing...")
         try:
-            await BleakClient(addr).unpair()
+            if address:
+                await BleakClient(address).unpair()
+            elif name:
+                await BleakClient(name).unpair()
             print("unpaired")
         except BleakDeviceNotFoundError:
             print("device was not paired")
 
     print("scanning...")
 
-    device = await BleakScanner.find_device_by_address(addr)
-
-    if device is None:
-        print("device was not found")
-        return
+    if address:
+        device = await BleakScanner.find_device_by_address(address)
+        if device is None:
+            print(f"could not find device with address '{address}'")
+            return
+    elif name:
+        device = await BleakScanner.find_device_by_name(name)
+        if device is None:
+            print(f"could not find device with name '{name}'")
+            return
+    else:
+        raise ValueError("Either --name or --address must be provided")
 
     callbacks = AgentCallbacks()
     if auto:
@@ -74,7 +84,19 @@ async def main(addr: str, unpair: bool, auto: bool) -> None:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser("pairing_agent.py")
-    parser.add_argument("address", help="the Bluetooth address (or UUID on macOS)")
+
+    device_group = parser.add_mutually_exclusive_group(required=True)
+    device_group.add_argument(
+        "--name",
+        metavar="<name>",
+        help="the name of the bluetooth device to connect to",
+    )
+    device_group.add_argument(
+        "--address",
+        metavar="<address>",
+        help="the address of the bluetooth device to connect to",
+    )
+
     parser.add_argument(
         "--unpair", action="store_true", help="unpair first before pairing"
     )
@@ -83,4 +105,4 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
-    asyncio.run(main(args.address, args.unpair, args.auto))
+    asyncio.run(main(args.address, args.name, args.unpair, args.auto))
