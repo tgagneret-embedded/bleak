@@ -1,6 +1,9 @@
 import argparse
 import asyncio
 
+from prompt_toolkit import PromptSession
+from prompt_toolkit.patch_stdout import patch_stdout
+
 from bleak import BaseBleakAgentCallbacks, BleakClient, BleakScanner
 from bleak.backends.device import BLEDevice
 from bleak.exc import (
@@ -12,23 +15,19 @@ from bleak.exc import (
 
 class AgentCallbacks(BaseBleakAgentCallbacks):
     def __init__(self) -> None:
-        super().__init__()
-
-    async def _input(self, msg: str) -> str:
-        """
-        Async version of the builtin input function.
-        """
-        return input(msg)
+        self.session: PromptSession[str] = PromptSession()
 
     async def request_passkey(self, device: BLEDevice) -> str:
         print(f"{device.name} wants to pair.")
-        response = await self._input("enter passkey: ")
+        with patch_stdout():
+            response = await self.session.prompt_async("enter passkey: ")
 
         return response
 
-    async def confirm_passkey(self, device: BLEDevice, pin: str) -> bool:
+    async def confirm_passkey(self, device: BLEDevice, passkey: str) -> bool:
         print(f"{device.name} wants to pair.")
-        response = await self._input(f"does {pin} match (y/n)?")
+        with patch_stdout():
+            response = await self.session.prompt_async(f"does {passkey} match (y/n)?")
 
         return response.lower().startswith("y")
 
