@@ -789,10 +789,12 @@ class BlueZManager:
 
         Returns:
             The current properties.
+
+        Raises:
+            BleakError: if the device is not present in BlueZ
         """
-        return cast(
-            Device1, self._properties[device_path][defs.DEVICE_INTERFACE].copy()
-        )
+        value = self._get_device_property(device_path, defs.DEVICE_INTERFACE, "Address")
+        return cast(Device1, value.copy())
 
     def get_device_name(self, device_path: str) -> str:
         """
