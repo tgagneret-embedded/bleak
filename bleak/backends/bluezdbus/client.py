@@ -97,11 +97,9 @@ class BleakClientBlueZDBus(BaseBleakClient):
         # BlueZ automatically enables notifications on reconnection (before
         # we can add a handler for them) and also ensures that the pairing
         # agent will only handle handle requests for this specific connection.
-        self._bus: MessageBus = MessageBus(
-            bus_type=BusType.SYSTEM,
-            negotiate_unix_fd=True,
-            auth=get_dbus_authenticator(),
-        )
+        # The MessageBus is created on-demand during connect() to ensure a fresh
+        # connection for each connect/disconnect cycle.
+        self._bus: Optional[MessageBus] = None
 
         # tracks device watcher subscription
         self._remove_device_watcher: Optional[Callable[[], None]] = None
@@ -172,6 +170,13 @@ class BleakClientBlueZDBus(BaseBleakClient):
         async with async_timeout(timeout):
             while True:
                 async with AsyncExitStack() as stack:
+                    if self._bus is None:
+                        self._bus = MessageBus(
+                            bus_type=BusType.SYSTEM,
+                            negotiate_unix_fd=True,
+                            auth=get_dbus_authenticator(),
+                        )
+
                     if not self._bus.connected:
                         await self._bus.connect()
 
