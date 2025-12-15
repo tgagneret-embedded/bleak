@@ -780,23 +780,6 @@ class BlueZManager:
 
         return services
 
-    def get_device_props(self, device_path: str) -> Device1:
-        """
-        Gets the current properties of a device.
-
-        Args:
-            device_path: The D-Bus object path of the device.
-
-        Returns:
-            The current properties.
-
-        Raises:
-            BleakError: if the device is not present in BlueZ
-        """
-        return cast(
-            Device1, self._properties[device_path][defs.DEVICE_INTERFACE].copy()
-        )
-
     def get_device_name(self, device_path: str) -> str:
         """
         Gets the value of the "Name" property for a device.
@@ -826,6 +809,21 @@ class BlueZManager:
             BleakError: if the device is not present in BlueZ
         """
         return self._get_device_property(device_path, defs.DEVICE_INTERFACE, "Address")
+
+    def get_device_alias(self, device_path: str) -> str:
+        """
+        Gets the value of the "Alias" property for a device.
+
+        Args:
+            device_path: The D-Bus object path of the device.
+
+        Returns:
+            The current property value.
+
+        Raises:
+            BleakError: if the device is not present in BlueZ
+        """
+        return self._get_device_property(device_path, defs.DEVICE_INTERFACE, "Alias")
 
     def is_connected(self, device_path: str) -> bool:
         """

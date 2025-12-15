@@ -42,11 +42,10 @@ class Agent(ServiceInterface):
     @staticmethod
     async def _create_ble_device(device_path: str) -> BLEDevice:
         manager = await get_global_bluez_manager()
-        props = manager.get_device_props(device_path)
         return BLEDevice(
-            props["Address"],
-            props["Alias"],
-            {"path": device_path, "props": props},
+            manager.get_device_address(device_path),
+            manager.get_device_alias(device_path),
+            {"path": device_path},
         )
 
     @method()
